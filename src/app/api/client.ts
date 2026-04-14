@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
 interface ApiResponse<T = unknown> {
   success: boolean;
@@ -34,21 +34,31 @@ async function api<T = unknown>(
 
   const config: RequestInit = {
     method,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
   };
+
+  // 设置默认 Content-Type 为 application/json，除非 body 是 FormData
+  const isFormData = body instanceof FormData;
+  if (!isFormData) {
+    config.headers = {
+      "Content-Type": "application/json",
+    };
+  }
 
   if (token) {
     config.headers = {
       ...config.headers,
       Authorization: `Bearer ${token}`,
+      ...headers,
+    };
+  } else if (headers) {
+    config.headers = {
+      ...config.headers,
+      ...headers,
     };
   }
 
   if (body) {
-    config.body = JSON.stringify(body);
+    config.body = isFormData ? body : JSON.stringify(body);
   }
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
@@ -65,11 +75,14 @@ async function api<T = unknown>(
 export const apiClient = {
   get: <T = unknown>(endpoint: string) => api<T>(endpoint, { method: "GET" }),
 
-  post: <T = unknown>(endpoint: string, body: unknown) =>
-    api<T>(endpoint, { method: "POST", body }),
+  post: <T = unknown>(endpoint: string, body: unknown, headers?: Record<string, string>) =>
+    api<T>(endpoint, { method: "POST", body, headers }),
 
-  put: <T = unknown>(endpoint: string, body: unknown) =>
-    api<T>(endpoint, { method: "PUT", body }),
+  put: <T = unknown>(endpoint: string, body: unknown, headers?: Record<string, string>) =>
+    api<T>(endpoint, { method: "PUT", body, headers }),
+
+  patch: <T = unknown>(endpoint: string, body: unknown, headers?: Record<string, string>) =>
+    api<T>(endpoint, { method: "PATCH", body, headers }),
 
   delete: <T = unknown>(endpoint: string) => api<T>(endpoint, { method: "DELETE" }),
 };

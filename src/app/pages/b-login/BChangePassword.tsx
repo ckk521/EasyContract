@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { Eye, EyeOff, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { adminAuthApi } from "../../api/adminAuth";
 
 export function BChangePassword() {
   const navigate = useNavigate();
@@ -51,16 +52,16 @@ export function BChangePassword() {
     setLoading(true);
 
     try {
-      // TODO: Call change password API
-      console.log("Change password:", formData);
-
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await adminAuthApi.changePassword({
+        current_password: formData.currentPassword,
+        new_password: formData.newPassword,
+        confirm_password: formData.confirmPassword,
+      });
 
       // On success, redirect to B端
       navigate("/b-side");
     } catch (err) {
-      setError("修改失败，请稍后重试");
+      setError(err instanceof Error ? err.message : "修改失败，请稍后重试");
     } finally {
       setLoading(false);
     }

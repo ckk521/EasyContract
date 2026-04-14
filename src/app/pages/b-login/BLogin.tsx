@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { Eye, EyeOff, Gavel, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { adminAuthApi } from "../../api/adminAuth";
 
 export function BLogin() {
   const navigate = useNavigate();
@@ -20,22 +21,16 @@ export function BLogin() {
     setLoading(true);
 
     try {
-      // TODO: Call B端 login API
-      console.log("B Login:", formData);
+      const response = await adminAuthApi.login({
+        username: formData.username,
+        password: formData.password,
+      });
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Check if first login - would come from API response
-      const isFirstLogin = false; // Demo: set to true to test change password flow
-
-      if (isFirstLogin) {
-        navigate("/b-change-password");
-      } else {
+      if (response.success) {
         navigate("/b-side");
       }
     } catch (err) {
-      setError("用户名或密码错误");
+      setError(err instanceof Error ? err.message : "登录失败，请稍后重试");
     } finally {
       setLoading(false);
     }

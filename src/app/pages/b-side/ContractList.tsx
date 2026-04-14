@@ -1,12 +1,12 @@
 import React, { useState } from "react";
-import { 
-  Search, 
-  Filter, 
-  Download, 
-  MoreVertical, 
-  FileText, 
-  Clock, 
-  CheckCircle, 
+import {
+  Search,
+  Filter,
+  Download,
+  MoreVertical,
+  FileText,
+  Clock,
+  CheckCircle,
   AlertCircle,
   Eye,
   Trash2,
@@ -15,23 +15,13 @@ import {
   ArrowUpDown,
   Plus
 } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 function cn(...inputs: any[]) {
   return twMerge(clsx(inputs));
 }
-
-const contracts = [
-  { id: '1', no: 'HT-2026-001', title: '劳务派遣协议_版本v1.2', user: '张晓云', type: '劳动合同', status: 'reviewing', time: '2026-03-21 10:30', priority: 'High', size: '1.2MB' },
-  { id: '2', no: 'HT-2026-002', title: '服务器采购租赁合同', user: '北京蓝天科技', type: '采购合同', status: 'pending_approve', time: '2026-03-21 09:15', priority: 'Medium', size: '2.5MB' },
-  { id: '3', no: 'HT-2026-003', title: '写字楼租赁补充协议', user: '李宏图', type: '租赁合同', status: 'pending_assign', time: '2026-03-21 08:45', priority: 'Low', size: '0.8MB' },
-  { id: '4', no: 'HT-2026-004', title: '股权转让框架协议', user: '顺义投资集团', type: '投融资', status: 'reviewing', time: '2026-03-20 16:20', priority: 'High', size: '4.1MB' },
-  { id: '5', no: 'HT-2026-005', title: '软件开发外包合同', user: '极客工作室', type: '技术服务', status: 'approved', time: '2026-03-20 14:10', priority: 'Medium', size: '1.5MB' },
-  { id: '6', no: 'HT-2026-006', title: '市场推广合作协议', user: '快传传媒', type: '营销合作', status: 'completed', time: '2026-03-20 11:30', priority: 'Low', size: '1.1MB' },
-  { id: '7', no: 'HT-2026-007', title: '保密协议(NDA)', user: '海纳百川AI', type: '知识产权', status: 'rejected', time: '2026-03-20 09:50', priority: 'High', size: '0.5MB' },
-];
 
 const statusMap: any = {
   pending: { label: '待初审', color: 'bg-slate-100 text-slate-600' },
@@ -45,6 +35,7 @@ const statusMap: any = {
 };
 
 export function ContractList() {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
 
   return (
@@ -59,7 +50,10 @@ export function ContractList() {
                <Download className="w-4 h-4" />
                导出列表
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
+            <button
+              onClick={() => navigate("/b-side/contracts")}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
+            >
                <Plus className="w-4 h-4" />
                上传新合同
             </button>
@@ -116,7 +110,7 @@ export function ContractList() {
                   </tr>
                </thead>
                <tbody className="divide-y divide-slate-50">
-                  {contracts.map((contract) => (
+                  {[].map((contract) => (
                      <tr key={contract.id} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-6 py-4">
                            <div className="flex items-center gap-4">

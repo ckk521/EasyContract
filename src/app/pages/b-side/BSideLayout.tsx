@@ -1,14 +1,12 @@
 import { Outlet, Link, useLocation } from "react-router";
-import { 
-  LayoutDashboard, 
-  FileText, 
-  ShieldAlert, 
-  Users, 
-  PieChart, 
-  Settings, 
+import {
+  LayoutDashboard,
+  FileText,
+  ShieldAlert,
+  Users,
+  Settings,
   LogOut,
-  Gavel,
-  ChevronRight
+  ChevronRight,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -29,7 +27,7 @@ export function BSideLayout() {
   ];
 
   return (
-    <div className="flex h-full bg-slate-50 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
@@ -92,7 +90,7 @@ export function BSideLayout() {
         </header>
 
         {/* Dynamic Page Content */}
-        <div className="flex-1 overflow-y-auto p-8 max-w-7xl mx-auto w-full">
+        <div className="flex-1 overflow-y-auto">
            <Outlet />
         </div>
       </main>

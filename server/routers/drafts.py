@@ -168,10 +168,19 @@ def save_field_values(
     new_values = field_values.model_dump(exclude_none=True)
     form_data.update(new_values)
 
-    # 计算已填写的字段数量（只统计有值的非空字段）
+    # 获取模板字段总数
+    total_fields = db.query(FieldDefinition).filter(
+        FieldDefinition.template_id == db_draft.template_id
+    ).count()
+
+    # 计算已填写的字段数量（只统计有值的非空字段，且不超过total_fields）
     filled_count = sum(1 for v in form_data.values() if v not in (None, "", []))
+    # 确保filled_count不超过total_fields
+    filled_count = min(filled_count, total_fields) if total_fields > 0 else filled_count
+
     db_draft.form_data = form_data
     db_draft.filled_fields = filled_count
+    db_draft.total_fields = total_fields
 
     db.commit()
     db.refresh(db_draft)
@@ -348,7 +357,9 @@ def generate_contract_content(
 
     # 使用模板解析器生成内容
     form_data = db_draft.form_data or {}
-    content = render_template(template.content, form_data)
+    # Use html_content for HTML templates, fallback to content for markdown templates
+    template_content = template.html_content or template.content
+    content = render_template(template_content, form_data)
 
     # 更新草稿
     db_draft.generated_content = content

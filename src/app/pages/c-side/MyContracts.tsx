@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { draftApi, Draft } from "../../api";
+import { draftApi, templateApi, Draft } from "../../api";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import {
@@ -25,11 +25,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { toast } from "sonner";
 import {
   Plus,
   FileText,
-  Edit,
   Trash2,
   Eye,
   Loader2,
@@ -37,6 +42,10 @@ import {
   CheckCircle,
   XCircle,
   Archive,
+  Download,
+  Printer,
+  Save,
+  CheckCircle2,
 } from "lucide-react";
 
 const STATUS_CONFIG = {
@@ -96,7 +105,23 @@ export function MyContracts() {
   const [deletingContract, setDeletingContract] = useState<Draft | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Mock user ID - in real app, get from auth context
+  // Preview/Edit state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewContract, setPreviewContract] = useState<Draft | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [generatedContent, setGeneratedContent] = useState<string>("");
+  const [generating, setGenerating] = useState(false);
+  const [editMode, setEditMode] = useState(true); // 默认编辑模式
+  const [fieldDefinitions, setFieldDefinitions] = useState<Array<{
+    id: number;
+    field_name: string;
+    display_name: string;
+    field_type: string;
+  }>>([]);
+
   const userId = 1;
 
   useEffect(() => {
@@ -120,10 +145,6 @@ export function MyContracts() {
     navigate("/c/create-contract");
   }
 
-  function openEditDialog(contract: Draft) {
-    navigate(`/c/create-contract?draft_id=${contract.id}`);
-  }
-
   function openDeleteDialog(contract: Draft) {
     setDeletingContract(contract);
     setDeleteDialogOpen(true);
@@ -145,9 +166,134 @@ export function MyContracts() {
     }
   }
 
+  async function openPreview(contract: Draft) {
+    setPreviewContract(contract);
+    setPreviewOpen(true);
+    setLoadingPreview(true);
+    setPreviewHtml("");
+    setGeneratedContent("");
+    setFormValues({});
+    setFieldDefinitions([]);
+    setEditMode(true); // 始终以编辑模式打开
+
+    try {
+      // Get template and fields
+      const template = await templateApi.getById(contract.template_id);
+      const fieldsData = await draftApi.getFields(contract.id);
+
+      // Store field definitions
+      setFieldDefinitions(fieldsData.fields || []);
+
+      // form_data is stored with placeholder index as keys (strings "0", "1", etc.)
+      if (contract.form_data) {
+        setFormValues(contract.form_data as Record<string, string>);
+      }
+
+      // Build preview HTML with editable placeholders
+      let html = template.html_content || "";
+
+      // Replace placeholders with input fields
+      const placeholderRegex = /<span class="ec-placeholder" data-index="(\d+)">[^<]*<\/span>/g;
+      html = html.replace(placeholderRegex, (match, index) => {
+        return `<span class="editable-placeholder" data-index="${index}"></span>`;
+      });
+
+      setPreviewHtml(html);
+    } catch (error) {
+      toast.error("加载预览失败");
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  function handleFieldChange(fieldName: string, value: string) {
+    setFormValues(prev => ({ ...prev, [fieldName]: value }));
+  }
+
+  async function handleSave() {
+    if (!previewContract) return;
+
+    setSaving(true);
+    try {
+      // formValues uses placeholder index as keys (same format as stored in form_data)
+      await draftApi.saveFieldValues(previewContract.id, formValues);
+      toast.success("保存成功");
+      loadContracts();
+    } catch (error: any) {
+      toast.error(error.message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleGenerate() {
+    if (!previewContract) return;
+
+    setGenerating(true);
+    try {
+      // Save first (formValues uses placeholder index as keys)
+      await draftApi.saveFieldValues(previewContract.id, formValues);
+
+      // Generate contract
+      const result = await draftApi.generate(previewContract.id);
+      setGeneratedContent(result.content);
+      setEditMode(false); // 切换到预览模式
+      toast.success("合同生成成功");
+      loadContracts();
+    } catch (error: any) {
+      toast.error(error.message || "生成失败");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   function getCompletionText(filled: number, total: number): string {
     if (total === 0) return "0%";
-    return `${Math.round((filled / total) * 100)}%`;
+    const percent = Math.min(100, Math.round((filled / total) * 100));
+    return `${percent}%`;
+  }
+
+  // Render contract with editable fields - inline text input style
+  function renderEditableContract() {
+    if (!previewHtml) return null;
+
+    // Split HTML by editable placeholders and render with inline inputs
+    const parts = previewHtml.split(/<span class="editable-placeholder" data-index="(\d+)"><\/span>/);
+    const result: React.ReactNode[] = [];
+    let key = 0;
+
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) {
+        // Regular HTML content
+        if (parts[i]) {
+          result.push(
+            <span key={key++} dangerouslySetInnerHTML={{ __html: parts[i] }} />
+          );
+        }
+      } else {
+        // Placeholder index - render as inline editable text
+        const index = parts[i];
+        const value = formValues[index] || "";
+        result.push(
+          <input
+            key={`input-${index}`}
+            type="text"
+            value={value}
+            onChange={(e) => handleFieldChange(index, e.target.value)}
+            placeholder="____"
+            className="inline-block bg-yellow-50 px-1 py-0.5 text-inherit outline-none focus:bg-yellow-100 focus:ring-1 focus:ring-blue-400 rounded"
+            style={{
+              width: `${Math.max(40, (value.length || 4) * 14 + 8)}px`,
+              minWidth: '40px',
+              border: 'none',
+              borderBottom: '1px solid #94a3b8',
+            }}
+          />
+        );
+      }
+    }
+
+    return result;
   }
 
   return (
@@ -226,21 +372,11 @@ export function MyContracts() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          {contract.status === "draft" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(contract)}
-                              title="编辑"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                          )}
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => navigate(`/c/create-contract?draft_id=${contract.id}`)}
-                            title="查看"
+                            onClick={() => openPreview(contract)}
+                            title="查看/编辑"
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -292,6 +428,181 @@ export function MyContracts() {
           )}
         </>
       )}
+
+      {/* Preview/Edit Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="!w-[95vw] !max-w-[95vw] !max-h-[95vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="flex flex-row items-center justify-between p-4 border-b bg-slate-50 shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              {previewContract?.name || "合同预览"}
+            </DialogTitle>
+            <div className="flex items-center gap-2">
+              {generatedContent && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const blob = new Blob([generatedContent], { type: 'text/html;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${previewContract?.name || '合同'}.html`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    <Download className="w-4 h-4 mr-1" />
+                    下载
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const printWindow = window.open('', '_blank');
+                      if (printWindow) {
+                        printWindow.document.write(`
+                          <!DOCTYPE html>
+                          <html>
+                          <head>
+                            <title>${previewContract?.name || '合同'}</title>
+                            <style>
+                              body { font-family: 'SimSun', '宋体', serif; padding: 40px; line-height: 1.8; }
+                            </style>
+                          </head>
+                          <body>${generatedContent}</body>
+                          </html>
+                        `);
+                        printWindow.document.close();
+                        printWindow.print();
+                      }
+                    }}
+                  >
+                    <Printer className="w-4 h-4 mr-1" />
+                    打印
+                  </Button>
+                </>
+              )}
+            </div>
+          </DialogHeader>
+
+          {/* Action Bar */}
+          <div className="flex items-center justify-between px-6 py-3 border-b bg-white shrink-0">
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-slate-500">
+                {editMode ? "点击黄色区域可修改填写内容" : "当前为预览模式"}
+              </p>
+              {generatedContent && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditMode(!editMode)}
+                  className="text-blue-600"
+                >
+                  {editMode ? "查看生成结果" : "返回编辑"}
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSave}
+                disabled={saving || generating}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    保存草稿
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleGenerate}
+                disabled={saving || generating}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {generating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    生成中...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    生成合同
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto bg-slate-100 p-6">
+            {loadingPreview ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                <span className="ml-2 text-slate-600">加载中...</span>
+              </div>
+            ) : !editMode && generatedContent ? (
+              /* Show generated contract (non-editable) */
+              <div className="flex justify-center">
+                <div
+                  className="bg-white shadow-lg"
+                  style={{
+                    width: '210mm',
+                    minHeight: '297mm',
+                    padding: '25mm 20mm',
+                    fontFamily: "'SimSun', '宋体', serif",
+                    fontSize: '14px',
+                    lineHeight: '1.8',
+                    color: '#1a1a1a',
+                    boxSizing: 'border-box',
+                  }}
+                  dangerouslySetInnerHTML={{ __html: generatedContent }}
+                />
+              </div>
+            ) : previewHtml ? (
+              /* Editable contract form */
+              <div className="flex justify-center">
+                <div
+                  className="bg-white shadow-lg"
+                  style={{
+                    width: '210mm',
+                    minHeight: '297mm',
+                    padding: '25mm 20mm',
+                    fontFamily: "'SimSun', '宋体', serif",
+                    fontSize: '14px',
+                    lineHeight: '1.8',
+                    color: '#1a1a1a',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <style>{`
+                    .contract-content p { margin-bottom: 12px; text-indent: 2em; }
+                    .contract-content p:first-child { text-indent: 0; }
+                    .contract-content strong { font-weight: bold; }
+                    .contract-content ol, .contract-content ul { margin: 12px 0; padding-left: 2em; }
+                    .contract-content li { margin-bottom: 8px; }
+                  `}</style>
+                  <div className="contract-content">
+                    {renderEditableContract()}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-500">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-slate-400" />
+                <p>暂无合同内容</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

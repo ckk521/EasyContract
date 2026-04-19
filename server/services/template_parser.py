@@ -190,9 +190,24 @@ def render_template(content: str, fields: Dict[str, Any]) -> str:
     """
     result = content
 
+    # Handle {{field_name}} style placeholders (markdown templates)
     for field_name, value in fields.items():
         placeholder = f"{{{{{field_name}}}}}"
         result = result.replace(placeholder, str(value) if value is not None else "")
+
+    # Handle <span class="ec-placeholder" data-index="N"> style placeholders (HTML templates)
+    # fields keys are placeholder indices as strings ("0", "1", etc.)
+    import re
+    placeholder_pattern = re.compile(
+        r'<span class="ec-placeholder" data-index="(\d+)">[^<]*</span>'
+    )
+
+    def replace_placeholder(match):
+        index = match.group(1)
+        value = fields.get(index, fields.get(int(index), ""))
+        return str(value) if value is not None else ""
+
+    result = placeholder_pattern.sub(replace_placeholder, result)
 
     return result
 

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import {
   Send,
   Paperclip,
@@ -19,7 +20,8 @@ import {
   Save,
   CheckCircle,
   Download,
-  Printer
+  Printer,
+  Trash2
 } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -27,6 +29,16 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { agentApi, ChatMessage } from "../../api/agent";
 import { templateApi, draftApi } from "../../api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
 import { Button } from "../../components/ui/button";
 
 // Template data from agent tool results
@@ -42,12 +54,14 @@ function cn(...inputs: any[]) {
 }
 
 export function AgentChat() {
+  const [searchParams] = useSearchParams();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [currentIntent, setCurrentIntent] = useState<string>("");
   const [foundTemplates, setFoundTemplates] = useState<AgentTemplate[]>([]);
+  const [conversations, setConversations] = useState<Array<{id: number; title?: string; current_intent?: string; created_at: string; updated_at: string}>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const closeSSERef = useRef<(() => void) | null>(null);
 
@@ -62,33 +76,237 @@ export function AgentChat() {
   const [generatedContent, setGeneratedContent] = useState<string>("");
   const [draftId, setDraftId] = useState<number | null>(null);
   const [fieldDefinitions, setFieldDefinitions] = useState<Array<{id: number; field_name: string; display_name: string}>>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  // Delete conversation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingConvId, setDeletingConvId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Load an existing draft for continuation
+  const loadDraft = async (id: number) => {
+    setLoadingContract(true);
+    try {
+      const draft = await draftApi.get(id);
+      const template = await templateApi.getById(draft.template_id);
+      const fieldsData = await draftApi.getFields(id);
+
+      // Set up the template and form
+      setSelectedTemplate({
+        id: template.id,
+        name: template.name,
+        description: template.description || "",
+        template_type: template.template_type,
+      });
+      setDraftId(id);
+      setFieldDefinitions(fieldsData.fields || []);
+      setContractHtml(template.html_content || "");
+      setGeneratedContent(draft.generated_content || "");
+
+      // Parse placeholders from template
+      const placeholderList: Array<{index: number; name: string; display_name: string}> = [];
+      if (template.placeholders) {
+        template.placeholders.forEach((p: any, idx: number) => {
+          placeholderList.push({
+            index: p.index ?? idx,
+            name: p.name || `field_${idx}`,
+            display_name: p.display_name || p.name || `字段${idx + 1}`,
+          });
+        });
+      }
+      setPlaceholders(placeholderList);
+
+      // Load saved form values
+      if (draft.form_data) {
+        setFormValues(draft.form_data as Record<string, string>);
+      }
+
+      // Add a message to indicate we're continuing
+      setMessages([{
+        id: "welcome",
+        role: "assistant",
+        content: `您正在继续编辑「${draft.name}」，请填写或修改合同信息。`,
+        timestamp: new Date(),
+      }]);
+    } catch (error) {
+      toast.error("加载草稿失败");
+    } finally {
+      setLoadingContract(false);
+    }
+  };
+
+  // Load contract for new conversation (from MyContracts page)
+  const loadContractForChat = async (contractId: number) => {
+    setLoadingContract(true);
+    try {
+      const draft = await draftApi.get(contractId);
+      const template = await templateApi.getById(draft.template_id);
+
+      // Set up the template for display
+      setSelectedTemplate({
+        id: template.id,
+        name: template.name,
+        description: template.description || "",
+        template_type: template.template_type,
+      });
+      setDraftId(draft.id);
+      setContractHtml(template.html_content || "");
+      setGeneratedContent(draft.generated_content || "");
+
+      // Parse placeholders from template
+      const placeholderList: Array<{index: number; name: string; display_name: string}> = [];
+      if (template.placeholders) {
+        template.placeholders.forEach((p: any, idx: number) => {
+          placeholderList.push({
+            index: p.index ?? idx,
+            name: p.name || `field_${idx}`,
+            display_name: p.display_name || p.name || `字段${idx + 1}`,
+          });
+        });
+      }
+      setPlaceholders(placeholderList);
+
+      // Load saved form values
+      if (draft.form_data) {
+        setFormValues(draft.form_data as Record<string, string>);
+      }
+
+      // Create a new conversation
+      try {
+        const result = await agentApi.createConversation();
+        setConversationId(result.conversation_id);
+      } catch (error) {
+        // Continue without conversation ID
+      }
+
+      // Add a welcome message
+      setMessages([{
+        id: "welcome",
+        role: "assistant",
+        content: `您好！您正在查看「${draft.name}」。您可以在下方继续咨询相关问题，或修改合同信息后保存。`,
+        timestamp: new Date(),
+      }]);
+    } catch (error) {
+      toast.error("加载合同失败");
+    } finally {
+      setLoadingContract(false);
+    }
+  };
+
+  // Load conversations list
+  const loadConversations = async () => {
+    try {
+      const result = await agentApi.getConversations(1, 20);
+      setConversations(result.items || []);
+    } catch (error) {
+      // Ignore error for now
+    }
+  };
+
+  // Load messages for a conversation
+  const loadConversationMessages = async (convId: number) => {
+    try {
+      // Reset state first
+      setSelectedTemplate(null);
+      setContractHtml("");
+      setPlaceholders([]);
+      setFormValues({});
+      setGeneratedContent("");
+      setDraftId(null);
+      setFieldDefinitions([]);
+      setFoundTemplates([]);
+
+      // Load messages
+      const result = await agentApi.getMessages(convId, 1, 50);
+      const loadedMessages: ChatMessage[] = (result.items || []).map((m: any) => ({
+        id: String(m.id),
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.created_at),
+      }));
+      setMessages(loadedMessages);
+      setConversationId(convId);
+    } catch (error) {
+      toast.error("加载对话历史失败");
+    }
+  };
+
+  // Open delete conversation dialog
+  const openDeleteDialog = (e: React.MouseEvent, convId: number) => {
+    e.stopPropagation(); // Prevent triggering loadConversationMessages
+    setDeletingConvId(convId);
+    setDeleteDialogOpen(true);
+  };
+
+  // Delete conversation
+  const handleDeleteConversation = async () => {
+    if (!deletingConvId) return;
+
+    setDeleting(true);
+    try {
+      await agentApi.deleteConversation(deletingConvId);
+      toast.success("对话已删除");
+      setDeleteDialogOpen(false);
+
+      // If deleted conversation was active, reset state
+      if (conversationId === deletingConvId) {
+        setConversationId(null);
+        setMessages([]);
+        handleNewConversation();
+      }
+
+      // Refresh conversations list
+      loadConversations();
+    } catch (error: any) {
+      toast.error(error.message || "删除失败");
+    } finally {
+      setDeleting(false);
+      setDeletingConvId(null);
+    }
+  };
 
   // 初始化
   useEffect(() => {
-    const init = async () => {
-      try {
-        const welcome = await agentApi.getWelcome();
-        setMessages([{
-          id: "welcome",
-          role: "assistant",
-          content: welcome.message,
-          timestamp: new Date(),
-        }]);
-      } catch (error) {
-        setMessages([{
-          id: "welcome",
-          role: "assistant",
-          content: "您好！我是法律助手法小才，我可以帮您起草合同、回答法律问题。请问有什么可以帮助您的？",
-          timestamp: new Date(),
-        }]);
-      }
-    };
-    init();
+    if (initialized) return;
+
+    // Load conversations list
+    loadConversations();
+
+    const draftIdParam = searchParams.get("draft_id");
+    const contractIdParam = searchParams.get("contract_id");
+
+    if (draftIdParam) {
+      loadDraft(parseInt(draftIdParam));
+    } else if (contractIdParam) {
+      // Load contract and create new conversation for discussion
+      loadContractForChat(parseInt(contractIdParam));
+    } else {
+      const init = async () => {
+        try {
+          const welcome = await agentApi.getWelcome();
+          setMessages([{
+            id: "welcome",
+            role: "assistant",
+            content: welcome.message,
+            timestamp: new Date(),
+          }]);
+        } catch (error) {
+          setMessages([{
+            id: "welcome",
+            role: "assistant",
+            content: "您好！我是法律助手法小才，我可以帮您起草合同、回答法律问题。请问有什么可以帮助您的？",
+            timestamp: new Date(),
+          }]);
+        }
+      };
+      init();
+    }
+    setInitialized(true);
 
     return () => {
       closeSSERef.current?.();
     };
-  }, []);
+  }, [searchParams, initialized]);
 
   // 自动滚动
   useEffect(() => {
@@ -138,10 +356,20 @@ export function AgentChat() {
           setCurrentIntent(data.intent);
         },
         onToolCalls: (data) => {
+          console.log("onToolCalls:", data);
           if (data.tools) {
             for (const tool of data.tools) {
+              console.log("tool:", tool.tool, "result:", tool.result);
               if (tool.tool === "template_search" && tool.result?.templates) {
+                console.log("Setting foundTemplates:", tool.result.templates);
                 setFoundTemplates(tool.result.templates);
+                // Reset selected template when new templates are found
+                setSelectedTemplate(null);
+                setContractHtml("");
+                setPlaceholders([]);
+                setFormValues({});
+                setGeneratedContent("");
+                setDraftId(null);
               }
             }
           }
@@ -242,24 +470,18 @@ export function AgentChat() {
       }
       setPlaceholders(placeholderList);
 
-      // Fetch field definitions for this template
-      const fieldsData = await draftApi.getFields(0); // We'll create a temp draft or use template fields
-      // Actually, we need to get fields from template - let's use a different approach
-      // Store the placeholder_field_map from template
-      if (templateData.placeholder_field_map) {
-        const fieldMap = templateData.placeholder_field_map;
-        // Get field definitions by fetching from a created draft
-        const userId = 1;
-        const tempDraft = await draftApi.create({
-          name: `temp_${Date.now()}`,
-          template_id: template.id,
-          user_id: userId,
-        });
-        const draftFields = await draftApi.getFields(tempDraft.id);
-        setFieldDefinitions(draftFields.fields || []);
-        setDraftId(tempDraft.id);
-        // Delete the temp draft values but keep the draft
-      }
+      // Create a draft first, then get field definitions
+      const userId = 1;
+      const tempDraft = await draftApi.create({
+        name: `${template.name} - ${new Date().toLocaleDateString()}`,
+        template_id: template.id,
+        user_id: userId,
+      });
+      setDraftId(tempDraft.id);
+
+      // Get field definitions from the created draft
+      const draftFields = await draftApi.getFields(tempDraft.id);
+      setFieldDefinitions(draftFields.fields || []);
     } catch (error) {
       toast.error("加载合同模板失败");
       setSelectedTemplate(null);
@@ -273,35 +495,24 @@ export function AgentChat() {
     setFormValues(prev => ({ ...prev, [index]: value }));
   };
 
-  // Save draft - convert placeholder index to field name
+  // Check if all required fields are filled
+  const allFieldsFilled = () => {
+    if (placeholders.length === 0) return false;
+    // Check if all placeholders have values
+    return placeholders.every(p => {
+      const value = formValues[p.index];
+      return value && value.trim() !== "";
+    });
+  };
+
+  // Save draft - use placeholder index as keys (same format as backend expects)
   const handleSaveDraft = async () => {
     if (!selectedTemplate || !draftId) return;
 
     setSavingDraft(true);
     try {
-      // Convert placeholder index values to field name values
-      const fieldValuesByName: Record<string, string> = {};
-
-      // Map placeholder index to field name using fieldDefinitions
-      Object.entries(formValues).forEach(([indexStr, value]) => {
-        const index = parseInt(indexStr);
-        const placeholder = placeholders.find(p => p.index === index);
-        if (placeholder && placeholder.name) {
-          // Try to find matching field definition
-          const fieldDef = fieldDefinitions.find(f =>
-            f.display_name === placeholder.display_name ||
-            f.field_name === placeholder.name
-          );
-          if (fieldDef) {
-            fieldValuesByName[fieldDef.field_name] = value;
-          } else {
-            // Fallback to placeholder name
-            fieldValuesByName[placeholder.name] = value;
-          }
-        }
-      });
-
-      await draftApi.saveFieldValues(draftId, fieldValuesByName);
+      // formValues already uses placeholder index as keys
+      await draftApi.saveFieldValues(draftId, formValues);
       toast.success("草稿保存成功");
 
       setMessages(prev => [...prev, {
@@ -323,27 +534,8 @@ export function AgentChat() {
 
     setGeneratingContract(true);
     try {
-      // Convert placeholder index values to field name values
-      const fieldValuesByName: Record<string, string> = {};
-
-      Object.entries(formValues).forEach(([indexStr, value]) => {
-        const index = parseInt(indexStr);
-        const placeholder = placeholders.find(p => p.index === index);
-        if (placeholder && placeholder.name) {
-          const fieldDef = fieldDefinitions.find(f =>
-            f.display_name === placeholder.display_name ||
-            f.field_name === placeholder.name
-          );
-          if (fieldDef) {
-            fieldValuesByName[fieldDef.field_name] = value;
-          } else {
-            fieldValuesByName[placeholder.name] = value;
-          }
-        }
-      });
-
-      // Save field values first
-      await draftApi.saveFieldValues(draftId, fieldValuesByName);
+      // Save field values first (formValues uses placeholder index as keys)
+      await draftApi.saveFieldValues(draftId, formValues);
 
       // Generate contract
       const result = await draftApi.generate(draftId);
@@ -444,8 +636,8 @@ export function AgentChat() {
 
   return (
     <div className="flex h-full bg-slate-50 relative overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-80 border-r border-slate-200 bg-white flex flex-col hidden lg:flex">
+      {/* Sidebar - Fixed */}
+      <div className="w-80 border-r border-slate-200 bg-white flex flex-col hidden lg:flex fixed left-16 top-16 h-[calc(100vh-4rem)] z-30">
          <div className="p-4 border-b border-slate-100">
             <button
               onClick={handleNewConversation}
@@ -457,21 +649,35 @@ export function AgentChat() {
          </div>
          <div className="flex-1 overflow-y-auto p-4 space-y-2">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 mb-2">最近对话</h3>
-            {[
-              { title: "租赁合同审核咨询", time: "10:30", active: true },
-              { title: "劳动合同解除补偿金", time: "昨天" },
-            ].map((item, i) => (
-              <div key={i} className={cn(
-                "p-3 rounded-xl flex items-center gap-3 cursor-pointer group transition-all",
-                item.active ? "bg-blue-50 text-blue-700 border border-blue-100" : "hover:bg-slate-50 text-slate-600"
-              )}>
-                <MessageSquare className={cn("w-4 h-4 shrink-0", item.active ? "text-blue-600" : "text-slate-400")} />
-                <div className="flex-1 overflow-hidden">
-                   <p className="text-sm font-semibold truncate">{item.title}</p>
-                   <p className="text-[10px] text-slate-400 mt-0.5">{item.time}</p>
+            {conversations.length === 0 ? (
+              <p className="text-xs text-slate-400 px-2">暂无对话记录</p>
+            ) : (
+              conversations.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => loadConversationMessages(item.id)}
+                  className={cn(
+                    "p-3 rounded-xl flex items-center gap-3 cursor-pointer group transition-all",
+                    conversationId === item.id ? "bg-blue-50 text-blue-700 border border-blue-100" : "hover:bg-slate-50 text-slate-600"
+                  )}
+                >
+                  <MessageSquare className={cn("w-4 h-4 shrink-0", conversationId === item.id ? "text-blue-600" : "text-slate-400")} />
+                  <div className="flex-1 overflow-hidden">
+                     <p className="text-sm font-semibold truncate">{item.title || item.current_intent || "法律咨询"}</p>
+                     <p className="text-[10px] text-slate-400 mt-0.5">
+                       {new Date(item.updated_at || item.created_at).toLocaleDateString()}
+                     </p>
+                  </div>
+                  <button
+                    onClick={(e) => openDeleteDialog(e, item.id)}
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                    title="删除对话"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
          </div>
          <div className="p-4 border-t border-slate-100 bg-slate-50/50">
             <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -486,8 +692,8 @@ export function AgentChat() {
          </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col h-full bg-white lg:bg-slate-50/30">
+      {/* Main Chat Area - with left margin for fixed sidebar */}
+      <div className="flex-1 flex flex-col h-full bg-white lg:bg-slate-50/30 ml-80 lg:ml-80">
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-8">
            <AnimatePresence>
@@ -684,8 +890,8 @@ export function AgentChat() {
                      </Button>
                      <Button
                        onClick={handleGenerateContract}
-                       disabled={generatingContract || savingDraft}
-                       className="bg-green-600 hover:bg-green-700"
+                       disabled={generatingContract || savingDraft || !allFieldsFilled()}
+                       className={allFieldsFilled() ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}
                      >
                        {generatingContract ? (
                          <>
@@ -831,6 +1037,35 @@ export function AgentChat() {
            </p>
         </div>
       </div>
+
+      {/* Delete Conversation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除对话</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除这个对话吗？删除后对话记录将无法恢复，但已保存的合同仍会保留。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConversation}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  删除中...
+                </>
+              ) : (
+                "确认删除"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -46,6 +46,7 @@ import {
   Printer,
   Save,
   CheckCircle2,
+  MessageSquare,
 } from "lucide-react";
 
 const STATUS_CONFIG = {
@@ -208,6 +209,22 @@ export function MyContracts() {
 
   function handleFieldChange(fieldName: string, value: string) {
     setFormValues(prev => ({ ...prev, [fieldName]: value }));
+  }
+
+  // Check if all fields are filled
+  function allFieldsFilled(): boolean {
+    if (fieldDefinitions.length === 0) {
+      // If no field definitions, check formValues against total_fields
+      const total = previewContract?.total_fields || 0;
+      if (total === 0) return false;
+      const filledCount = Object.values(formValues).filter(v => v && String(v).trim() !== "").length;
+      return filledCount >= total;
+    }
+    // Check if all field definitions have values
+    return fieldDefinitions.every(f => {
+      const value = formValues[f.field_name];
+      return value && String(value).trim() !== "";
+    });
   }
 
   async function handleSave() {
@@ -380,6 +397,14 @@ export function MyContracts() {
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => navigate(`/c-side?contract_id=${contract.id}`)}
+                            title="继续对话"
+                          >
+                            <MessageSquare className="w-4 h-4 text-blue-600" />
+                          </Button>
                           {contract.status === "draft" && (
                             <Button
                               variant="ghost"
@@ -524,8 +549,8 @@ export function MyContracts() {
               </Button>
               <Button
                 onClick={handleGenerate}
-                disabled={saving || generating}
-                className="bg-green-600 hover:bg-green-700"
+                disabled={saving || generating || !allFieldsFilled()}
+                className={allFieldsFilled() ? "bg-green-600 hover:bg-green-700" : "bg-gray-400 cursor-not-allowed"}
               >
                 {generating ? (
                   <>

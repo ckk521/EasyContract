@@ -15,13 +15,13 @@ export function CSideLayout() {
 
   return (
     <div className="flex h-full bg-slate-50 overflow-hidden">
-      {/* C-side Header / Mini Sidebar */}
-      <aside className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-6 shrink-0 z-40 shadow-sm">
+      {/* C-side Header / Mini Sidebar - Fixed */}
+      <aside className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-6 shrink-0 z-40 shadow-sm fixed left-0 top-0 h-full">
         <Link to="/c-side" className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center mb-8 shadow-md hover:scale-105 transition-transform group relative">
           <MessageSquare className="w-5 h-5 text-white" />
           <span className="absolute left-14 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">智能法律咨询</span>
         </Link>
-        
+
         <nav className="flex-1 flex flex-col items-center gap-6">
           <Link
             to="/c-side"
@@ -44,7 +44,7 @@ export function CSideLayout() {
             <FileText className="w-5 h-5" />
             <span className="absolute left-14 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">我的合同</span>
           </Link>
-          
+
           <div className="h-px w-6 bg-slate-200 my-2" />
 
           <button className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all group relative">
@@ -64,15 +64,15 @@ export function CSideLayout() {
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full bg-slate-50 overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-30 shadow-sm shrink-0">
+      {/* Main Content Area - with left margin to account for fixed sidebar */}
+      <main className="flex-1 flex flex-col h-full bg-slate-50 overflow-hidden relative ml-16">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 fixed top-0 left-16 right-0 z-30 shadow-sm shrink-0">
           <div className="flex items-center gap-3">
              { !isChat && (
-               <button 
-                onClick={() => navigate(-1)} 
+               <button
+                onClick={() => navigate(-1)}
                 className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
-               >
+              >
                  <ChevronLeft className="w-5 h-5" />
                </button>
              )}
@@ -88,7 +88,7 @@ export function CSideLayout() {
                 )}
              </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
              <div className="px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-full flex items-center gap-2">
                 <span className="text-xs font-medium text-blue-700">剩余配额: 25 次</span>
@@ -97,8 +97,8 @@ export function CSideLayout() {
           </div>
         </header>
 
-        {/* Content View */}
-        <div className="flex-1 overflow-hidden relative">
+        {/* Content View - with top margin for fixed header */}
+        <div className="flex-1 overflow-auto relative mt-16">
            <Outlet />
         </div>
       </main>

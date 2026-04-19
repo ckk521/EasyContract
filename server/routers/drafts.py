@@ -49,6 +49,10 @@ def create_draft(draft: DraftCreate, db: Session = Depends(get_db)):
         FieldDefinition.template_id == draft.template_id
     ).count()
 
+    # 如果没有字段定义，使用模板的占位符数量
+    if field_count == 0 and template.placeholder_field_map:
+        field_count = len(template.placeholder_field_map)
+
     db_draft = ContractDraft(
         name=draft.name,
         template_id=draft.template_id,
@@ -172,6 +176,14 @@ def save_field_values(
     total_fields = db.query(FieldDefinition).filter(
         FieldDefinition.template_id == db_draft.template_id
     ).count()
+
+    # 如果没有字段定义，使用模板的占位符数量
+    if total_fields == 0:
+        template = db.query(ContractTemplate).filter(
+            ContractTemplate.id == db_draft.template_id
+        ).first()
+        if template and template.placeholder_field_map:
+            total_fields = len(template.placeholder_field_map)
 
     # 计算已填写的字段数量（只统计有值的非空字段，且不超过total_fields）
     filled_count = sum(1 for v in form_data.values() if v not in (None, "", []))
